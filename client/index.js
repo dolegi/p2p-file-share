@@ -126,13 +126,32 @@ function channelCallback(event) {
 }
 
 function handleReceiveMessage(event) {
-  const el = document.createElement('p');
-  const txtNode = document.createTextNode(event.data);
+  download(event.data, 'test.txt', 'txt')
+  // const el = document.createElement('p');
+  // const txtNode = document.createTextNode(event.data);
 
-  el.appendChild(txtNode);
-  receiveBox.appendChild(el);
+  // el.appendChild(txtNode);
+  // receiveBox.appendChild(el);
 }
 
 function handleChannelStatusChange(event) {
   console.log('WebRTC channel status has changed to ' + channel.readyState);
+}
+
+function download(data, filename, type) {
+    var file = new Blob([data], {type: type});
+    if (window.navigator.msSaveOrOpenBlob) // IE10+
+        window.navigator.msSaveOrOpenBlob(file, filename);
+    else { // Others
+        var a = document.createElement("a"),
+                url = URL.createObjectURL(file);
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);  
+        }, 0); 
+    }
 }

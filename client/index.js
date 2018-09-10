@@ -110,8 +110,7 @@ function handleClient2(socket) {
   }
 }
 
-function sendMessage() {
-  const message = messageInputBox.value;
+function sendMessage(message) {
   channel.send(message);
 
   messageInputBox.value = '';
@@ -154,4 +153,20 @@ function download(data, filename, type) {
             window.URL.revokeObjectURL(url);  
         }, 0); 
     }
+}
+
+document.querySelector('.file-reader').addEventListener('change', function(event) {
+  const file = event.target.files[0];
+  if (file) {
+    const arrayReader = new FileReader();
+    arrayReader.readAsArrayBuffer(file);
+    arrayReader.onload = function(event) {
+      const fileStr = abToStr(event.target.result)
+      sendMessage(fileStr)
+    }
+  }
+});
+
+function abToStr(buf) {
+  return String.fromCharCode.apply(null, new Uint8Array(buf));
 }

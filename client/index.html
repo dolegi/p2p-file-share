@@ -1,6 +1,7 @@
 <html>
   <head>
     <title>File Share</title>
+    <link href="./index.scss" rel="stylesheet">
   </head>
   <body>
     <div class="messagebox">
@@ -8,9 +9,16 @@
         <input type="text" name="message" id="message" placeholder="Message text"
                                                        inputmode="latin" size=60 maxlength=120 >
       </label>
-      <button id="sendButton" name="sendButton" class="buttonright" >
-        Send
-      </button>
+        <div class="file-reader-container">
+          <div class="file-reader-wrapper">
+            <input id="file" name="file" class="file-reader" type="file">
+            <label for="file" class="file-label">Drag files here</label>
+            <button class="mobile-button">Upload Files</button>
+          </div>
+        </div>
+        <button id="sendButton" name="sendButton" class="buttonright" >
+          Send
+        </button>
     </div>
     <div class="messagebox" id="receivebox">
       <p>Messages received:</p>

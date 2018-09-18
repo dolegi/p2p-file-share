@@ -1,20 +1,17 @@
+import * as crypto from 'crypto'
 let key
 const socket = new WebSocket('ws://localhost:3004')
 socket.onopen = () => console.log('Socket is open')
 socket.onclose = () => console.log('Socket closed')
 
-const sendButton = document.getElementById('sendButton');
-const messageInputBox = document.getElementById('message');
 const receiveBox = document.getElementById('receivebox');
 
 let localConnection, remoteConnection, channel
 
-sendButton.addEventListener('click', sendMessage);
-
-if (window.location.search === '') {
+if (window.location.pathname === '/') {
   handleClient1(socket)
 } else {
-  key = window.location.search.split('=')[1]
+  key = window.location.pathname.slice(1)
   handleClient2(socket)
 }
 
@@ -25,7 +22,7 @@ function handleClient1(socket) {
     console.log(msg)
     switch(msg.Type) {
       case 'key':
-        return console.log(window.location + "?key=" + msg.Key)
+        return console.log(window.location + msg.Key)
       case 'answer':
         return localConnection.setRemoteDescription(JSON.parse(msg.Data))
       case 'ice':
@@ -94,7 +91,7 @@ function handleClient2(socket) {
   }
 
   remoteConnection = new RTCPeerConnection({iceServers: [
-    {url: 'stun:stun.services.mozilla.com:3478'},
+    {urls: ['stun:stun.services.mozilla.com:3478' ]},
   ]});
   remoteConnection.ondatachannel = channelCallback;
 
@@ -110,11 +107,29 @@ function handleClient2(socket) {
   }
 }
 
-function sendMessage(message) {
-  channel.send(message);
+function sendFile(file) {
+  // const fileStr = abToStr(file)
+  // const hash = crypto.createHmac('sha256', fileStr).digest('hex')
+  // channel.send(JSON.stringify({ type: 'meta', hash }))
+  // channel.send(JSON.stringify({ type: 'chunk', chunk: fileStr }))
 
-  messageInputBox.value = '';
-  messageInputBox.focus();
+  const fileLength = file.byteLength
+  for (let i = 0; i < fileLength; i += 1024) {
+    let chunkView
+    if (fileLength < i + 1024) {
+      chunkView = new DataView(file, i, i + (fileLength % 1024))
+    } else {
+      chunkView = new DataView(file, i, i + 1024)
+    }
+    sendChunk(chunkView)
+  }
+}
+
+function sendChunk(chunkView) {
+  const chunk = abToStr(chunkView.buffer)
+  const hash = crypto.createHmac('sha256', chunk).digest('hex')
+  channel.send(JSON.stringify({ type: 'hash', data: hash }))
+  channel.send(JSON.stringify({ type: 'chunk', data: chunk }))
 }
 
 function channelCallback(event) {
@@ -125,7 +140,17 @@ function channelCallback(event) {
 }
 
 function handleReceiveMessage(event) {
-  download(event.data, 'test.txt', 'txt')
+  const { type, data } = JSON.parse(event.data)
+
+  console.log(type)
+  console.log(data)
+
+  // if (type === 'meta') {
+  //   console.log(data.data)
+  // } else {
+  //   download(data.chunk, 'test.txt', 'txt')
+  // }
+
   // const el = document.createElement('p');
   // const txtNode = document.createTextNode(event.data);
 
@@ -161,8 +186,7 @@ document.querySelector('.file-reader').addEventListener('change', function(event
     const arrayReader = new FileReader();
     arrayReader.readAsArrayBuffer(file);
     arrayReader.onload = function(event) {
-      const fileStr = abToStr(event.target.result)
-      sendMessage(fileStr)
+      sendFile(event.target.result)
     }
   }
 });

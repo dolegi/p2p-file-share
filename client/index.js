@@ -1,5 +1,6 @@
 import * as crypto from 'crypto'
 let key
+let receivedFile = '', receivedHash = ''
 const socket = new WebSocket('ws://localhost:3004')
 socket.onopen = () => console.log('Socket is open')
 socket.onclose = () => console.log('Socket closed')
@@ -108,21 +109,19 @@ function handleClient2(socket) {
 }
 
 function sendFile(file) {
-  // const fileStr = abToStr(file)
-  // const hash = crypto.createHmac('sha256', fileStr).digest('hex')
-  // channel.send(JSON.stringify({ type: 'meta', hash }))
-  // channel.send(JSON.stringify({ type: 'chunk', chunk: fileStr }))
-
+  const chunkSize = 1024
   const fileLength = file.byteLength
-  for (let i = 0; i < fileLength; i += 1024) {
+  for (let i = 0; i < fileLength; i += chunkSize) {
     let chunkView
-    if (fileLength < i + 1024) {
-      chunkView = new DataView(file, i, i + (fileLength % 1024))
+    if (fileLength < i + chunkSize) {
+      chunkView = new DataView(file, i, i + (fileLength % chunkSize))
     } else {
-      chunkView = new DataView(file, i, i + 1024)
+      chunkView = new DataView(file, i, i + chunkSize)
     }
     sendChunk(chunkView)
   }
+
+  channel.send(JSON.stringify({ type: 'end', data: { fileName: 'test', fileType: 'txt' }}))
 }
 
 function sendChunk(chunkView) {
@@ -142,42 +141,46 @@ function channelCallback(event) {
 function handleReceiveMessage(event) {
   const { type, data } = JSON.parse(event.data)
 
-  console.log(type)
-  console.log(data)
 
-  // if (type === 'meta') {
-  //   console.log(data.data)
-  // } else {
-  //   download(data.chunk, 'test.txt', 'txt')
-  // }
+  switch (type) {
+    case 'hash':
+      receivedHash = data
+      return
+    case 'chunk':
+      handleReceiveChunk(data)
+      return
+    case 'end':
+      const { fileName, fileType } = data
+      download(fileName, fileType)
+      receivedHash = ''
+      receivedFile = ''
+  }
+}
 
-  // const el = document.createElement('p');
-  // const txtNode = document.createTextNode(event.data);
-
-  // el.appendChild(txtNode);
-  // receiveBox.appendChild(el);
+function handleReceiveChunk(chunk) {
+  const hash = crypto.createHmac('sha256', chunk).digest('hex')
+  if (hash !== receivedHash) {
+    console.log('corrupt data')
+    return
+  }
+  receivedFile += chunk
 }
 
 function handleChannelStatusChange(event) {
   console.log('WebRTC channel status has changed to ' + channel.readyState);
 }
 
-function download(data, filename, type) {
-    var file = new Blob([data], {type: type});
-    if (window.navigator.msSaveOrOpenBlob) // IE10+
-        window.navigator.msSaveOrOpenBlob(file, filename);
-    else { // Others
-        var a = document.createElement("a"),
-                url = URL.createObjectURL(file);
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function() {
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);  
-        }, 0); 
-    }
+function download(fileName, fileType) {
+  const file = new Blob([receivedFile], {type: fileType})
+  const a = document.createElement('a'), url = URL.createObjectURL(file)
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => {
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }, 0)
 }
 
 document.querySelector('.file-reader').addEventListener('change', function(event) {

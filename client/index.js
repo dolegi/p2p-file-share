@@ -1,6 +1,6 @@
 import * as crypto from 'crypto'
 let key
-let receivedFile = '', receivedHash = ''
+let receivedFile = '', receivedHash = '', sendFileName = '', sendFileType = ''
 const socket = new WebSocket('ws://localhost:3004')
 socket.onopen = () => console.log('Socket is open')
 socket.onclose = () => console.log('Socket closed')
@@ -111,21 +111,22 @@ function handleClient2(socket) {
 function sendFile(file) {
   const chunkSize = 1024
   const fileLength = file.byteLength
+  console.log(fileLength)
   for (let i = 0; i < fileLength; i += chunkSize) {
     let chunkView
     if (fileLength < i + chunkSize) {
-      chunkView = new DataView(file, i, i + (fileLength % chunkSize))
+      chunkView = new DataView(file, i, fileLength % chunkSize)
     } else {
-      chunkView = new DataView(file, i, i + chunkSize)
+      chunkView = new DataView(file, i,  chunkSize)
     }
     sendChunk(chunkView)
   }
 
-  channel.send(JSON.stringify({ type: 'end', data: { fileName: 'test', fileType: 'txt' }}))
+  channel.send(JSON.stringify({ type: 'end', data: { fileName: sendFileName, fileType: sendFileType }}))
 }
 
 function sendChunk(chunkView) {
-  const chunk = abToStr(chunkView.buffer)
+  const chunk = viewToStr(chunkView)
   const hash = crypto.createHmac('sha256', chunk).digest('hex')
   channel.send(JSON.stringify({ type: 'hash', data: hash }))
   channel.send(JSON.stringify({ type: 'chunk', data: chunk }))
@@ -140,7 +141,6 @@ function channelCallback(event) {
 
 function handleReceiveMessage(event) {
   const { type, data } = JSON.parse(event.data)
-
 
   switch (type) {
     case 'hash':
@@ -186,6 +186,8 @@ function download(fileName, fileType) {
 document.querySelector('.file-reader').addEventListener('change', function(event) {
   const file = event.target.files[0];
   if (file) {
+    sendFileName = file.name
+    sendFileType = file.type
     const arrayReader = new FileReader();
     arrayReader.readAsArrayBuffer(file);
     arrayReader.onload = function(event) {
@@ -194,6 +196,10 @@ document.querySelector('.file-reader').addEventListener('change', function(event
   }
 });
 
-function abToStr(buf) {
-  return String.fromCharCode.apply(null, new Uint8Array(buf));
+function viewToStr(view) {
+  let str = ''
+  for (let i = 0; i < view.byteLength; i++) {
+    str += String.fromCharCode(view.getUint8(i))
+  }
+  return str
 }

@@ -1,14 +1,14 @@
 import SparkMD5 from 'spark-md5'
 
 let key
-let receivedFile = '', receivedHash = ''
-const socket = new WebSocket('ws://localhost:3004')
+const socket = new WebSocket('ws://' + window.location.hostname + ':3004')
 socket.onopen = () => console.log('Socket is open')
 socket.onclose = () => console.log('Socket closed')
 
-const receiveBox = document.getElementById('receivebox');
+const receiveBox = document.getElementById('receivebox')
 
 let localConnection, remoteConnection, channel
+let receivedName, receivedType, receivedFile, receivedHash
 
 if (window.location.pathname === '/') {
   handleClient1(socket)
@@ -116,63 +116,13 @@ function channelCallback(event) {
   channel.onclose = handleChannelStatusChange;
 }
 
-function handleReceiveMessage(event) {
-  console.log(event.data)
-  return
-  const { type, data } = JSON.parse(event.data)
-
-  switch (type) {
-    case 'hash':
-      receivedHash = data
-      return
-    case 'chunk':
-      handleReceiveChunk(data)
-      return
-    case 'end':
-      const { fileName, fileType } = data
-      download(fileName, fileType)
-      receivedHash = ''
-      receivedFile = ''
-  }
-}
-
-function handleReceiveChunk(chunk) {
-  const hash = crypto.createHmac('sha256', chunk).digest('hex')
-  if (hash !== receivedHash) {
-    console.log('corrupt data')
-    return
-  }
-  receivedFile += chunk
-}
-
 function handleChannelStatusChange(event) {
   console.log('WebRTC channel status has changed to ' + channel.readyState);
 }
-
-function download(fileName, fileType) {
-  const file = new Blob([receivedFile], {type: fileType})
-  const a = document.createElement('a'), url = URL.createObjectURL(file)
-  a.href = url
-  a.download = fileName
-  document.body.appendChild(a)
-  a.click()
-  setTimeout(() => {
-    document.body.removeChild(a)
-    window.URL.revokeObjectURL(url)
-  }, 0)
-}
-
-document.querySelector('.file-reader').addEventListener('change', event => {
-  const file = event.target.files[0]
-  if (file) {
-    sendFile(file)
-  }
-})
+document.querySelector('.file-reader').addEventListener('change', ({ target }) => target.files[0] && sendFile(target.files[0]))
 
 function sendFile(file) {
   const chunkSize = 1024
-  const sendFileName = file.name
-  const sendFileType = file.type
   const fileReader = new FileReader()
   const spark = new SparkMD5()
   const readSlice = () => fileReader.readAsArrayBuffer(file.slice(offset, offset + chunkSize))
@@ -180,7 +130,6 @@ function sendFile(file) {
   let offset = 0
 
   fileReader.addEventListener('error', error => console.error('Error reading file:', error));
-  fileReader.addEventListener('abort', event => console.log('File reading aborted:', event));
   fileReader.addEventListener('load', event => {
     const { result } = event.target
     spark.append(result)
@@ -190,10 +139,55 @@ function sendFile(file) {
       readSlice()
     } else {
       const hash = spark.end()
-      channel.send(JSON.stringify({ type: 'end', hash }))
+      channel.send(JSON.stringify({ type: 'end', data: { hash }}))
     }
   })
 
-  channel.send(JSON.stringify({ type: 'start', data: { fileName: sendFileName, fileType: sendFileType }}))
+  channel.send(JSON.stringify({ type: 'start', data: { name: file.name, type: file.type }}))
   readSlice()
 }
+
+function handleReceiveMessage({ data }) {
+  if (typeof data !== 'string') {
+    return receiveChunk(data)
+  }
+  const { type, data: msgData } = JSON.parse(data)
+
+  switch (type) {
+    case 'start':
+      return receiveStart(msgData)
+    case 'end':
+      return receiveEnd(msgData)
+  }
+}
+
+function receiveChunk(chunk) {
+  receivedHash.append(chunk)
+  receivedFile.push(chunk)
+}
+
+function receiveStart({ name, type }) {
+  receivedFile = []
+  receivedName = name
+  receivedType = type
+  receivedHash = new SparkMD5()
+}
+
+function receiveEnd({ hash }) {
+  if (receivedHash.end() !== hash) {
+    console.log('Mismatched md5 hashes, corrupted file')
+    return
+  }
+  const file = new Blob([receivedFile], {type: receivedType})
+  const a = document.createElement('a'), url = URL.createObjectURL(file)
+  a.href = url
+  a.download = receivedName
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => {
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }, 0)
+}
+
+

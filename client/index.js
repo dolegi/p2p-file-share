@@ -1,6 +1,7 @@
-import * as crypto from 'crypto'
+import SparkMD5 from 'spark-md5'
+
 let key
-let receivedFile = '', receivedHash = '', sendFileName = '', sendFileType = ''
+let receivedFile = '', receivedHash = ''
 const socket = new WebSocket('ws://localhost:3004')
 socket.onopen = () => console.log('Socket is open')
 socket.onclose = () => console.log('Socket closed')
@@ -108,30 +109,6 @@ function handleClient2(socket) {
   }
 }
 
-function sendFile(file) {
-  const chunkSize = 1024
-  const fileLength = file.byteLength
-  console.log(fileLength)
-  for (let i = 0; i < fileLength; i += chunkSize) {
-    let chunkView
-    if (fileLength < i + chunkSize) {
-      chunkView = new DataView(file, i, fileLength % chunkSize)
-    } else {
-      chunkView = new DataView(file, i,  chunkSize)
-    }
-    sendChunk(chunkView)
-  }
-
-  channel.send(JSON.stringify({ type: 'end', data: { fileName: sendFileName, fileType: sendFileType }}))
-}
-
-function sendChunk(chunkView) {
-  const chunk = viewToStr(chunkView)
-  const hash = crypto.createHmac('sha256', chunk).digest('hex')
-  channel.send(JSON.stringify({ type: 'hash', data: hash }))
-  channel.send(JSON.stringify({ type: 'chunk', data: chunk }))
-}
-
 function channelCallback(event) {
   channel = event.channel;
   channel.onmessage = handleReceiveMessage;
@@ -140,6 +117,8 @@ function channelCallback(event) {
 }
 
 function handleReceiveMessage(event) {
+  console.log(event.data)
+  return
   const { type, data } = JSON.parse(event.data)
 
   switch (type) {
@@ -183,23 +162,38 @@ function download(fileName, fileType) {
   }, 0)
 }
 
-document.querySelector('.file-reader').addEventListener('change', function(event) {
-  const file = event.target.files[0];
+document.querySelector('.file-reader').addEventListener('change', event => {
+  const file = event.target.files[0]
   if (file) {
-    sendFileName = file.name
-    sendFileType = file.type
-    const arrayReader = new FileReader();
-    arrayReader.readAsArrayBuffer(file);
-    arrayReader.onload = function(event) {
-      sendFile(event.target.result)
-    }
+    sendFile(file)
   }
-});
+})
 
-function viewToStr(view) {
-  let str = ''
-  for (let i = 0; i < view.byteLength; i++) {
-    str += String.fromCharCode(view.getUint8(i))
-  }
-  return str
+function sendFile(file) {
+  const chunkSize = 1024
+  const sendFileName = file.name
+  const sendFileType = file.type
+  const fileReader = new FileReader()
+  const spark = new SparkMD5()
+  const readSlice = () => fileReader.readAsArrayBuffer(file.slice(offset, offset + chunkSize))
+
+  let offset = 0
+
+  fileReader.addEventListener('error', error => console.error('Error reading file:', error));
+  fileReader.addEventListener('abort', event => console.log('File reading aborted:', event));
+  fileReader.addEventListener('load', event => {
+    const { result } = event.target
+    spark.append(result)
+    channel.send(result)
+    offset += result.byteLength
+    if (offset < file.size) {
+      readSlice()
+    } else {
+      const hash = spark.end()
+      channel.send(JSON.stringify({ type: 'end', hash }))
+    }
+  })
+
+  channel.send(JSON.stringify({ type: 'start', data: { fileName: sendFileName, fileType: sendFileType }}))
+  readSlice()
 }

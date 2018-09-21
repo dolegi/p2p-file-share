@@ -1,6 +1,7 @@
 import SparkMD5 from 'spark-md5'
 
 let key
+let allowDownload = false, allowSend = true
 const socket = new WebSocket('ws://' + window.location.hostname + ':3004')
 socket.onopen = () => console.log('Socket is open')
 socket.onclose = () => console.log('Socket closed')
@@ -131,6 +132,9 @@ function sendFile(file) {
 
   fileReader.addEventListener('error', error => console.error('Error reading file:', error));
   fileReader.addEventListener('load', event => {
+    if (!allowSend) {
+      fileReader.abort()
+    }
     const { result } = event.target
     spark.append(result)
     channel.send(result)
@@ -154,6 +158,8 @@ function handleReceiveMessage({ data }) {
   const { type, data: msgData } = JSON.parse(data)
 
   switch (type) {
+    case 'abort':
+      return allowSend = false
     case 'start':
       return receiveStart(msgData)
     case 'end':
@@ -162,6 +168,9 @@ function handleReceiveMessage({ data }) {
 }
 
 function receiveChunk(chunk) {
+  if (!allowDownload) {
+    return
+  }
   receivedHash.append(chunk)
   receivedFile.push(chunk)
 }
@@ -171,15 +180,23 @@ function receiveStart({ name, type }) {
   receivedName = name
   receivedType = type
   receivedHash = new SparkMD5()
+  allowDownload = confirm(`Accept incoming file ${name}?`)
+  if (!allowDownload) {
+    channel.send(JSON.stringify({ type: 'abort' }))
+  }
 }
 
 function receiveEnd({ hash }) {
+  if (!allowDownload) {
+    return
+  }
   if (receivedHash.end() !== hash) {
     console.log('Mismatched md5 hashes, corrupted file')
     return
   }
-  const file = new Blob([receivedFile], {type: receivedType})
-  const a = document.createElement('a'), url = URL.createObjectURL(file)
+  const file = new Blob(receivedFile, { type: receivedType })
+  const a = document.createElement('a')
+  const url = URL.createObjectURL(file)
   a.href = url
   a.download = receivedName
   document.body.appendChild(a)
